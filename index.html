@@ -6,186 +6,46 @@
     <title>SSC CGL CBT Examination Simulator - Current Affairs</title>
     <link rel="stylesheet" href="css/style.css" />
     <style>
-      body {
-        margin: 0;
-      }
+      body { margin: 0; }
 
-      .submission-modal {
-        position: fixed;
-        inset: 0;
-        background: rgba(15, 23, 42, 0.5);
-        display: none;
-        align-items: center;
-        justify-content: center;
-        z-index: 150;
-      }
+      .submission-modal { position: fixed; inset: 0; background: rgba(15,23,42,0.5); display: none; align-items: center; justify-content: center; z-index:150; }
+      .submission-modal.active { display: flex; }
+      .submission-modal-content { width: min(520px, calc(100vw - 32px)); background: #fff; border-radius: 12px; box-shadow: 0 20px 40px rgba(15,23,42,0.2); padding: 24px; border: 1px solid #e2e8f0; }
+      .submission-modal-content h3 { margin-bottom: 16px; font-size: 22px; }
+      .submission-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(140px, 1fr)); gap: 12px; margin: 18px 0 22px; }
+      .submission-summary-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; }
+      .submission-summary-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+      .submission-summary-value { font-size: 22px; font-weight: 800; color: #0f172a; margin-top: 6px; }
+      .modal-actions { display:flex; justify-content:flex-end; gap:10px; }
+      .timer-box-inner { display:inline-flex; align-items:center; gap:8px; font-weight:700; }
+      .timer-box-inner.warning { background:#fee2e2; border-color:#b91c1c; color:#991b1b; animation:pulse 1.5s infinite; }
 
-      .submission-modal.active {
-        display: flex;
-      }
+      /* Palette collapsed styles */
+      .palette-pane.collapsed { width: 56px !important; min-width:56px !important; max-width:56px !important; }
+      .palette-pane.collapsed .palette-candidate-box,
+      .palette-pane.collapsed .palette-legend-container,
+      .palette-pane.collapsed .palette-grid-container,
+      .palette-pane.collapsed .palette-submit-area { display: none !important; }
+      .palette-pane.collapsed { position: relative; }
+      .palette-pane .palette-collapsed-indicator { display: none; }
+      .palette-pane.collapsed .palette-collapsed-indicator { display:flex; align-items:center; justify-content:center; height:100%; font-weight:700; font-size:13px; writing-mode:vertical-rl; text-orientation:mixed; color:var(--text-dark); }
 
-      .submission-modal-content {
-        width: min(520px, calc(100vw - 32px));
-        background: #fff;
-        border-radius: 12px;
-        box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
-        padding: 24px;
-        border: 1px solid #e2e8f0;
-      }
+      /* Toggle handle */
+      .toggle-palette-btn { position: absolute; left: -18px; top: 12px; width: 34px; height: 34px; border-radius: 6px; border: 1px solid #cbd5e1; background:#ffffff; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+      .palette-pane { position: relative; }
 
-      .submission-modal-content h3 {
-        margin-bottom: 16px;
-        font-size: 22px;
-      }
+      /* When collapsed show subtle shadow so it reads like a handle */
+      .palette-pane.collapsed .toggle-palette-btn { left: -18px; }
 
-      .submission-summary-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(140px, 1fr));
-        gap: 12px;
-        margin: 18px 0 22px;
-      }
-
-      .submission-summary-item {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        padding: 12px 14px;
-      }
-
-      .submission-summary-label {
-        font-size: 11px;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-
-      .submission-summary-value {
-        font-size: 22px;
-        font-weight: 800;
-        color: #0f172a;
-        margin-top: 6px;
-      }
-
-      .modal-actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 10px;
-      }
-
-      .timer-box-inner {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        font-weight: 700;
-      }
-
-      .timer-box-inner.warning {
-        background: #fee2e2;
-        border-color: #b91c1c;
-        color: #991b1b;
-        animation: pulse 1.5s infinite;
-      }
-
-      /* Responsive adjustments for tablet and small desktops */
-      @media (max-width: 1024px) {
-        /* Stack panes vertically on tablet to avoid palette overlapping question */
-        .exam-active-view {
-          flex-direction: column;
-          height: auto; /* allow scroll rather than fixed height */
-        }
-
-        .question-pane {
-          width: 100%;
-          border-right: none;
-          order: 1;
-          padding-bottom: 12px;
-        }
-
-        .palette-pane {
-          width: 100%;
-          order: 2;
-          max-height: 280px; /* keep palette reasonably sized */
-          overflow-y: auto;
-          border-left: none;
-          border-top: 1px solid var(--border-color);
-        }
-
-        /* Reduce size of palette buttons to fit in fewer rows */
-        .question-buttons-grid {
-          grid-template-columns: repeat(4, 1fr);
-          gap: 6px;
-        }
-
-        .q-btn {
-          width: 44px;
-          height: 36px;
-          font-size: 12px;
-        }
-
-        /* Make top bar more compact */
-        .question-top-bar {
-          padding: 8px 12px;
-          gap: 8px;
-          align-items: center;
-        }
-
-        .question-top-bar span {
-          display: inline-block;
-        }
-
-        #question-number-display {
-          font-size: 14px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          max-width: 55%;
-        }
-
-        .palette-section-title span#palette-total {
-          font-size: 13px;
-        }
-      }
-
-      /* Further compact for narrow tablets / large phones */
-      @media (max-width: 768px) {
-        .question-buttons-grid {
-          grid-template-columns: repeat(5, 1fr);
-          gap: 6px;
-        }
-
-        .q-btn {
-          width: 40px;
-          height: 34px;
-          font-size: 11px;
-        }
-
-        .option-label {
-          font-size: 14px;
-        }
-
-        .palette-pane {
-          max-height: 260px;
-        }
-
-        #question-number-display {
-          font-size: 13px;
-          max-width: 60%;
-        }
-
-        .bottom-action-bar {
-          padding: 8px 12px;
-        }
-      }
-
-      /* Landscape small tablets: show panes side-by-side but reduce palette width */
+      /* Media responsive defaults: collapse on landscape tablets to avoid covering content */
       @media (min-width: 769px) and (max-width: 1024px) and (orientation: landscape) {
-        .exam-active-view {
-          flex-direction: row;
-          height: calc(100vh - 85px);
-        }
-        .palette-pane {
-          width: 260px;
-        }
+        .palette-pane { width: 260px; }
+        .palette-pane.landscape-default-collapsed { width: 56px; }
+      }
+
+      /* Ensure collapsed indicator is touch-friendly on small screens */
+      @media (max-width: 1024px) {
+        .toggle-palette-btn { left: -20px; }
       }
     </style>
   </head>
@@ -200,55 +60,39 @@
       </div>
 
       <div class="exam-header-right">
-        <div id="exam-header-timer" class="timer-box" style="display: none;">
-          <div id="timer-container" class="timer-box-inner">
-            <span>⏱</span>
-            <span id="time-left-display">25:00</span>
-          </div>
+        <div id="exam-header-timer" class="timer-box" style="display:none;">
+          <div id="timer-container" class="timer-box-inner"><span>⏱</span><span id="time-left-display">25:00</span></div>
         </div>
 
         <div class="candidate-mini-profile">
           <div class="candidate-avatar">👤</div>
-          <div>
-            <div style="font-weight: 700;">Candidate</div>
-            <div style="color: #cbd5e1;">Roll No. 2026</div>
-          </div>
+          <div><div style="font-weight:700;">Candidate</div><div style="color:#cbd5e1;">Roll No. 2026</div></div>
         </div>
       </div>
     </header>
 
     <div class="section-bar">
       <div class="section-tag" id="section-display-tag">Current Affairs</div>
-      <div class="marking-scheme-pill">
-        <span><span class="mark-plus">+2</span> Correct</span>
-        <span><span class="mark-minus">-0.5</span> Incorrect</span>
-      </div>
+      <div class="marking-scheme-pill"><span><span class="mark-plus">+2</span> Correct</span><span><span class="mark-minus">-0.5</span> Incorrect</span></div>
     </div>
 
     <main class="main-content">
-      <section id="dashboard-view" class="dashboard-view" style="display: block;">
+      <section id="dashboard-view" class="dashboard-view" style="display:block;">
         <div class="dashboard-hero">
           <h2>SSC CGL Current Affairs Mock Test Platform</h2>
           <p>Prepare with latest monthly current affairs quizzes designed in CBT format for competitive exam practice.</p>
-          <div class="hero-stats-row">
-            <div class="hero-stat-badge">🏆 6 Categories</div>
-            <div class="hero-stat-badge">🧠 175 Questions</div>
-            <div class="hero-stat-badge">⏱ 25 Minutes</div>
-            <div class="hero-stat-badge">📚 Monthly Practice</div>
-          </div>
+          <div class="hero-stats-row"><div class="hero-stat-badge">🏆 6 Categories</div><div class="hero-stat-badge">🧠 175 Questions</div><div class="hero-stat-badge">⏱ 25 Minutes</div><div class="hero-stat-badge">📚 Monthly Practice</div></div>
         </div>
 
         <div id="category-grid" class="category-selection-grid"></div>
 
         <div class="monthly-quizzes-wrapper">
-          <div class="section-heading-row">
-            <h3 id="selected-category-title">🏆 Sports & Tournaments - Monthly SSC CGL Quizzes</h3>
-          </div>
+          <div class="section-heading-row"><h3 id="selected-category-title">🏆 Sports & Tournaments - Monthly SSC CGL Quizzes</h3></div>
           <div id="monthly-quizzes-grid" class="quiz-month-grid"></div>
         </div>
       </section>
 
-      <section id="exam-active-view" class="exam-active-view" style="display: none;">
+      <section id="exam-active-view" class="exam-active-view" style="display:none;">
         <div class="question-pane">
           <div class="question-top-bar">
             <span id="question-number-display">Question 1 of 25</span>
@@ -261,25 +105,18 @@
           </div>
 
           <div class="bottom-action-bar">
-            <div class="action-btn-group-left">
-              <button id="btn-prev" class="btn-cbt btn-prev" type="button">⬅ Previous</button>
-              <button id="btn-clear-response" class="btn-cbt btn-clear" type="button">Clear Response</button>
-            </div>
-
-            <div class="action-btn-group-right">
-              <button id="btn-mark-review" class="btn-cbt btn-mark-review" type="button">Mark for Review</button>
-              <button id="btn-save-next" class="btn-cbt btn-save-next" type="button">Save &amp; Next ➡</button>
-            </div>
+            <div class="action-btn-group-left"><button id="btn-prev" class="btn-cbt btn-prev" type="button">⬅ Previous</button><button id="btn-clear-response" class="btn-cbt btn-clear" type="button">Clear Response</button></div>
+            <div class="action-btn-group-right"><button id="btn-mark-review" class="btn-cbt btn-mark-review" type="button">Mark for Review</button><button id="btn-save-next" class="btn-cbt btn-save-next" type="button">Save & Next ➡</button></div>
           </div>
         </div>
 
-        <aside class="palette-pane">
+        <aside id="palette" class="palette-pane">
+          <button id="toggle-palette-btn" class="toggle-palette-btn" aria-label="Toggle palette">◀</button>
+          <div class="palette-collapsed-indicator" id="palette-indicator">Q1</div>
+
           <div class="palette-candidate-box">
             <div class="palette-candidate-avatar">👨‍🎓</div>
-            <div class="palette-candidate-details">
-              <div class="name">Candidate</div>
-              <div class="roll">Roll No: SSC-2026</div>
-            </div>
+            <div class="palette-candidate-details"><div class="name">Candidate</div><div class="roll">Roll No: SSC-2026</div></div>
           </div>
 
           <div class="palette-legend-container">
@@ -293,68 +130,35 @@
           </div>
 
           <div class="palette-grid-container">
-            <div class="palette-section-title">
-              <span>Question Palette</span>
-              <span id="palette-total">25</span>
-            </div>
+            <div class="palette-section-title"><span>Question Palette</span><span id="palette-total">25</span></div>
             <div id="question-buttons-grid" class="question-buttons-grid"></div>
           </div>
 
-          <div class="palette-submit-area">
-            <button id="btn-submit-exam" class="btn-submit-test" type="button">Submit Test</button>
-          </div>
+          <div class="palette-submit-area"><button id="btn-submit-exam" class="btn-submit-test" type="button">Submit Test</button></div>
         </aside>
       </section>
 
-      <section id="result-view" class="result-view" style="display: none;">
+      <section id="result-view" class="result-view" style="display:none;">
         <div class="result-score-card">
           <div class="result-score-header">
-            <div>
-              <h2 id="res-quiz-title">Quiz Result</h2>
-              <p style="color: #64748b; margin-top: 4px;">SSC CGL Current Affairs Analysis</p>
-            </div>
+            <div><h2 id="res-quiz-title">Quiz Result</h2><p style="color:#64748b;margin-top:4px;">SSC CGL Current Affairs Analysis</p></div>
             <button id="btn-back-to-dash" class="btn-cbt btn-prev" type="button">Back to Dashboard</button>
           </div>
 
           <div class="result-score-grid">
-            <div class="stat-metric-card">
-              <div class="stat-val" id="res-total-score">0.00 / 50.0</div>
-              <div class="stat-lbl">Total Score</div>
-            </div>
-            <div class="stat-metric-card">
-              <div class="stat-val" id="res-accuracy">0%</div>
-              <div class="stat-lbl">Accuracy</div>
-            </div>
-            <div class="stat-metric-card">
-              <div class="stat-val" id="res-attempted">0 / 25</div>
-              <div class="stat-lbl">Attempted</div>
-            </div>
-            <div class="stat-metric-card">
-              <div class="stat-val" id="res-correct">0</div>
-              <div class="stat-lbl">Correct</div>
-            </div>
-            <div class="stat-metric-card">
-              <div class="stat-val" id="res-incorrect">0</div>
-              <div class="stat-lbl">Incorrect</div>
-            </div>
-            <div class="stat-metric-card">
-              <div class="stat-val" id="res-unattempted">0</div>
-              <div class="stat-lbl">Unattempted</div>
-            </div>
+            <div class="stat-metric-card"><div class="stat-val" id="res-total-score">0.00 / 50.0</div><div class="stat-lbl">Total Score</div></div>
+            <div class="stat-metric-card"><div class="stat-val" id="res-accuracy">0%</div><div class="stat-lbl">Accuracy</div></div>
+            <div class="stat-metric-card"><div class="stat-val" id="res-attempted">0 / 25</div><div class="stat-lbl">Attempted</div></div>
+            <div class="stat-metric-card"><div class="stat-val" id="res-correct">0</div><div class="stat-lbl">Correct</div></div>
+            <div class="stat-metric-card"><div class="stat-val" id="res-incorrect">0</div><div class="stat-lbl">Incorrect</div></div>
+            <div class="stat-metric-card"><div class="stat-val" id="res-unattempted">0</div><div class="stat-lbl">Unattempted</div></div>
           </div>
 
-          <div class="result-actions-row">
-            <button id="btn-reattempt" class="btn-cbt btn-save-next" type="button">Reattempt Quiz</button>
-          </div>
+          <div class="result-actions-row"><button id="btn-reattempt" class="btn-cbt btn-save-next" type="button">Reattempt Quiz</button></div>
         </div>
 
         <div class="solutions-container">
-          <div class="solutions-filter-bar">
-            <button class="filter-tab active" type="button" data-filter="all">All Questions (0)</button>
-            <button class="filter-tab" type="button" data-filter="correct">✔ Correct (0)</button>
-            <button class="filter-tab" type="button" data-filter="incorrect">❌ Incorrect (0)</button>
-            <button class="filter-tab" type="button" data-filter="unattempted">⚪ Unattempted (0)</button>
-          </div>
+          <div class="solutions-filter-bar"><button class="filter-tab active" type="button" data-filter="all">All Questions (0)</button><button class="filter-tab" type="button" data-filter="correct">✔ Correct (0)</button><button class="filter-tab" type="button" data-filter="incorrect">❌ Incorrect (0)</button><button class="filter-tab" type="button" data-filter="unattempted">⚪ Unattempted (0)</button></div>
           <div id="solutions-list"></div>
         </div>
       </section>
@@ -363,43 +167,75 @@
     <div id="submission-modal" class="submission-modal" aria-modal="true" role="dialog">
       <div class="submission-modal-content">
         <h3>Submit Test?</h3>
-        <p style="color: #64748b; line-height: 1.5;">Once submitted, the test will be evaluated and you will be shown the score and detailed solutions.</p>
+        <p style="color:#64748b;line-height:1.5;">Once submitted, the test will be evaluated and you will be shown the score and detailed solutions.</p>
 
         <div class="submission-summary-grid">
-          <div class="submission-summary-item">
-            <div class="submission-summary-label">Total</div>
-            <div class="submission-summary-value" id="modal-val-total">0</div>
-          </div>
-          <div class="submission-summary-item">
-            <div class="submission-summary-label">Answered</div>
-            <div class="submission-summary-value" id="modal-val-ans">0</div>
-          </div>
-          <div class="submission-summary-item">
-            <div class="submission-summary-label">Not Answered</div>
-            <div class="submission-summary-value" id="modal-val-not-ans">0</div>
-          </div>
-          <div class="submission-summary-item">
-            <div class="submission-summary-label">Marked</div>
-            <div class="submission-summary-value" id="modal-val-rev">0</div>
-          </div>
-          <div class="submission-summary-item">
-            <div class="submission-summary-label">Answered + Review</div>
-            <div class="submission-summary-value" id="modal-val-ans-rev">0</div>
-          </div>
-          <div class="submission-summary-item">
-            <div class="submission-summary-label">Not Visited</div>
-            <div class="submission-summary-value" id="modal-val-not-vis">0</div>
-          </div>
+          <div class="submission-summary-item"><div class="submission-summary-label">Total</div><div class="submission-summary-value" id="modal-val-total">0</div></div>
+          <div class="submission-summary-item"><div class="submission-summary-label">Answered</div><div class="submission-summary-value" id="modal-val-ans">0</div></div>
+          <div class="submission-summary-item"><div class="submission-summary-label">Not Answered</div><div class="submission-summary-value" id="modal-val-not-ans">0</div></div>
+          <div class="submission-summary-item"><div class="submission-summary-label">Marked</div><div class="submission-summary-value" id="modal-val-rev">0</div></div>
+          <div class="submission-summary-item"><div class="submission-summary-label">Answered + Review</div><div class="submission-summary-value" id="modal-val-ans-rev">0</div></div>
+          <div class="submission-summary-item"><div class="submission-summary-label">Not Visited</div><div class="submission-summary-value" id="modal-val-not-vis">0</div></div>
         </div>
 
-        <div class="modal-actions">
-          <button id="modal-btn-cancel-submit" class="btn-cbt btn-clear" type="button">Cancel</button>
-          <button id="modal-btn-confirm-submit" class="btn-cbt btn-save-next" type="button">Confirm Submit</button>
-        </div>
+        <div class="modal-actions"><button id="modal-btn-cancel-submit" class="btn-cbt btn-clear" type="button">Cancel</button><button id="modal-btn-confirm-submit" class="btn-cbt btn-save-next" type="button">Confirm Submit</button></div>
       </div>
     </div>
 
     <script src="js/data.js"></script>
     <script src="js/app.js"></script>
+    <script>
+      // Toggle palette collapsed state and update handle icon
+      (function(){
+        const palette = document.getElementById('palette');
+        const toggleBtn = document.getElementById('toggle-palette-btn');
+        const indicator = document.getElementById('palette-indicator');
+
+        function setCollapsed(collapsed) {
+          if (!palette) return;
+          if (collapsed) {
+            palette.classList.add('collapsed');
+            toggleBtn.textContent = '▶';
+            toggleBtn.setAttribute('aria-expanded', 'false');
+          } else {
+            palette.classList.remove('collapsed');
+            toggleBtn.textContent = '◀';
+            toggleBtn.setAttribute('aria-expanded', 'true');
+          }
+        }
+
+        // Initialize default for landscape tablets so they don't cover question
+        function initDefaultState() {
+          if (window.matchMedia('(min-width: 769px) and (max-width: 1024px) and (orientation: landscape)').matches) {
+            setCollapsed(true);
+            palette.classList.add('landscape-default-collapsed');
+          }
+        }
+
+        toggleBtn.addEventListener('click', () => {
+          const collapsed = palette.classList.contains('collapsed');
+          setCollapsed(!collapsed);
+        });
+
+        // Keep the tiny indicator updated with current question
+        function updateIndicator() {
+          try {
+            const idx = window.state && typeof window.state.currentQuestionIndex === 'number' ? window.state.currentQuestionIndex : 0;
+            indicator.textContent = 'Q' + (idx + 1);
+          } catch (e) {
+            // ignore
+          }
+        }
+
+        // Update on interval and on visibility changes
+        setInterval(updateIndicator, 250);
+        document.addEventListener('visibilitychange', updateIndicator);
+        window.addEventListener('resize', initDefaultState);
+
+        // Run init
+        initDefaultState();
+        updateIndicator();
+      })();
+    </script>
   </body>
 </html>
