@@ -20,33 +20,63 @@
       .timer-box-inner { display:inline-flex; align-items:center; gap:8px; font-weight:700; }
       .timer-box-inner.warning { background:#fee2e2; border-color:#b91c1c; color:#991b1b; animation:pulse 1.5s infinite; }
 
-      /* Palette collapsed styles */
-      .palette-pane.collapsed { width: 56px !important; min-width:56px !important; max-width:56px !important; }
+      /* Palette collapsed styles (body-level fallback + direct) */
+      .palette-pane.collapsed,
+      body.palette-collapsed .palette-pane {
+        width: 56px !important;
+        min-width: 56px !important;
+        max-width: 56px !important;
+      }
+
       .palette-pane.collapsed .palette-candidate-box,
       .palette-pane.collapsed .palette-legend-container,
       .palette-pane.collapsed .palette-grid-container,
-      .palette-pane.collapsed .palette-submit-area { display: none !important; }
+      .palette-pane.collapsed .palette-submit-area,
+      body.palette-collapsed .palette-pane .palette-candidate-box,
+      body.palette-collapsed .palette-pane .palette-legend-container,
+      body.palette-collapsed .palette-pane .palette-grid-container,
+      body.palette-collapsed .palette-pane .palette-submit-area {
+        display: none !important;
+      }
+
       .palette-pane.collapsed { position: relative; }
       .palette-pane .palette-collapsed-indicator { display: none; }
-      .palette-pane.collapsed .palette-collapsed-indicator { display:flex; align-items:center; justify-content:center; height:100%; font-weight:700; font-size:13px; writing-mode:vertical-rl; text-orientation:mixed; color:var(--text-dark); }
+      .palette-pane.collapsed .palette-collapsed-indicator,
+      body.palette-collapsed .palette-pane .palette-collapsed-indicator {
+        display:flex; align-items:center; justify-content:center; height:100%; font-weight:700; font-size:13px; writing-mode:vertical-rl; text-orientation:mixed; color:var(--text-dark);
+      }
 
-      /* Toggle handle */
-      .toggle-palette-btn { position: absolute; left: -18px; top: 12px; width: 34px; height: 34px; border-radius: 6px; border: 1px solid #cbd5e1; background:#ffffff; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
-      .palette-pane { position: relative; }
+      /* Floating toggle handle (always visible and outside question area) */
+      #palette-toggle-float {
+        position: fixed;
+        right: 62px; /* sits just left of collapsed palette (56px + 6px gap) */
+        top: 140px;
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        border: 1px solid rgba(0,0,0,0.08);
+        background: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 6px 18px rgba(15,23,42,0.08);
+        z-index: 120;
+        cursor: pointer;
+      }
 
-      /* When collapsed show subtle shadow so it reads like a handle */
-      .palette-pane.collapsed .toggle-palette-btn { left: -18px; }
+      /* Hide float toggle on very small screens where palette is full-width */
+      @media (max-width: 768px) {
+        #palette-toggle-float { display: none; }
+      }
 
       /* Media responsive defaults: collapse on landscape tablets to avoid covering content */
       @media (min-width: 769px) and (max-width: 1024px) and (orientation: landscape) {
         .palette-pane { width: 260px; }
-        .palette-pane.landscape-default-collapsed { width: 56px; }
+        body.landscape-default-collapsed .palette-pane { width: 56px; }
       }
 
-      /* Ensure collapsed indicator is touch-friendly on small screens */
-      @media (max-width: 1024px) {
-        .toggle-palette-btn { left: -20px; }
-      }
+      /* ensure transition for smooth collapse */
+      .palette-pane { transition: width 180ms ease; }
     </style>
   </head>
   <body>
@@ -111,7 +141,6 @@
         </div>
 
         <aside id="palette" class="palette-pane">
-          <button id="toggle-palette-btn" class="toggle-palette-btn" aria-label="Toggle palette">◀</button>
           <div class="palette-collapsed-indicator" id="palette-indicator">Q1</div>
 
           <div class="palette-candidate-box">
@@ -182,57 +211,72 @@
       </div>
     </div>
 
+    <!-- Floating toggle (always present on larger viewports) -->
+    <button id="palette-toggle-float" aria-label="Toggle question palette">◀</button>
+
     <script src="js/data.js"></script>
     <script src="js/app.js"></script>
     <script>
-      // Toggle palette collapsed state and update handle icon
       (function(){
         const palette = document.getElementById('palette');
-        const toggleBtn = document.getElementById('toggle-palette-btn');
+        const floatToggle = document.getElementById('palette-toggle-float');
         const indicator = document.getElementById('palette-indicator');
 
-        function setCollapsed(collapsed) {
-          if (!palette) return;
-          if (collapsed) {
+        function setCollapsed(collapsed){
+          if(!palette) return;
+          if(collapsed){
             palette.classList.add('collapsed');
-            toggleBtn.textContent = '▶';
-            toggleBtn.setAttribute('aria-expanded', 'false');
+            document.body.classList.add('palette-collapsed');
+            floatToggle.textContent = '◀';
+            floatToggle.setAttribute('aria-expanded','false');
           } else {
             palette.classList.remove('collapsed');
-            toggleBtn.textContent = '◀';
-            toggleBtn.setAttribute('aria-expanded', 'true');
+            document.body.classList.remove('palette-collapsed');
+            floatToggle.textContent = '▶';
+            floatToggle.setAttribute('aria-expanded','true');
           }
         }
 
-        // Initialize default for landscape tablets so they don't cover question
-        function initDefaultState() {
-          if (window.matchMedia('(min-width: 769px) and (max-width: 1024px) and (orientation: landscape)').matches) {
+        // Default collapse on landscape tablets (and ensure collapse if user resizes)
+        function initDefaultState(){
+          const mq = window.matchMedia('(min-width: 769px) and (max-width: 1024px) and (orientation: landscape)');
+          if(mq.matches){
             setCollapsed(true);
-            palette.classList.add('landscape-default-collapsed');
+            document.body.classList.add('landscape-default-collapsed');
+          } else {
+            // keep user preference if already set, otherwise expanded
+            if(!document.body.classList.contains('palette-collapsed')){
+              setCollapsed(false);
+            }
+            document.body.classList.remove('landscape-default-collapsed');
           }
         }
 
-        toggleBtn.addEventListener('click', () => {
-          const collapsed = palette.classList.contains('collapsed');
+        // Click handlers
+        floatToggle.addEventListener('click', ()=>{
+          const collapsed = palette.classList.contains('collapsed') || document.body.classList.contains('palette-collapsed');
           setCollapsed(!collapsed);
         });
 
-        // Keep the tiny indicator updated with current question
-        function updateIndicator() {
-          try {
+        // Also allow clicking the small collapsed indicator (if visible)
+        indicator.addEventListener('click', ()=>{
+          const collapsed = palette.classList.contains('collapsed') || document.body.classList.contains('palette-collapsed');
+          setCollapsed(!collapsed);
+        });
+
+        // Keep indicator updated with current question
+        function updateIndicator(){
+          try{
             const idx = window.state && typeof window.state.currentQuestionIndex === 'number' ? window.state.currentQuestionIndex : 0;
             indicator.textContent = 'Q' + (idx + 1);
-          } catch (e) {
-            // ignore
-          }
+          }catch(e){ }
         }
 
-        // Update on interval and on visibility changes
         setInterval(updateIndicator, 250);
-        document.addEventListener('visibilitychange', updateIndicator);
         window.addEventListener('resize', initDefaultState);
+        document.addEventListener('visibilitychange', updateIndicator);
 
-        // Run init
+        // Init
         initDefaultState();
         updateIndicator();
       })();
