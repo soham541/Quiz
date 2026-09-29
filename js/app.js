@@ -15,7 +15,7 @@ const state = {
   isReviewMode: false,
   activeSolutionFilter: "all",
   testHistory: {},
-  questionOrder: [] // New: tracks the order of questions for randomization
+  questionOrder: []
 };
 
 // Initialize Application
@@ -72,17 +72,17 @@ function setupEventListeners() {
   document.getElementById("btn-mark-review").addEventListener("click", handleMarkForReviewAndNext);
   document.getElementById("btn-clear-response").addEventListener("click", handleClearResponse);
   document.getElementById("btn-prev").addEventListener("click", handlePrevious);
-  
+
   // Submit actions
   document.getElementById("btn-submit-exam").addEventListener("click", openSubmitModal);
   document.getElementById("modal-btn-confirm-submit").addEventListener("click", submitTest);
   document.getElementById("modal-btn-cancel-submit").addEventListener("click", closeSubmitModal);
-  
+
   // Back to dashboard
   document.getElementById("btn-back-to-dash").addEventListener("click", returnToDashboard);
   document.getElementById("btn-reattempt").addEventListener("click", () => {
     if (state.activeQuiz) {
-      startQuiz(state.activeQuiz.id, true); // Pass true to enable randomization
+      startQuiz(state.activeQuiz.id, true);
     }
   });
 
@@ -97,14 +97,38 @@ function setupEventListeners() {
   });
 }
 
-// Utility function to shuffle array (Fisher-Yates algorithm)
 function shuffleArray(array) {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
+  const copy = [...array];
+  for (let i = copy.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    [copy[i], copy[j]] = [copy[j], copy[i]];
   }
-  return shuffled;
+  return copy;
+}
+
+function buildRandomizedQuizSession(quiz, randomizeQuestions, randomizeOptions) {
+  const originalOrder = Array.from({ length: quiz.questions.length }, (_, idx) => idx);
+  const questionOrder = randomizeQuestions ? shuffleArray(originalOrder) : originalOrder;
+
+  const randomizedQuestions = questionOrder.map((originalIndex) => {
+    const sourceQuestion = quiz.questions[originalIndex];
+    const optionOrder = randomizeOptions ? shuffleArray(Array.from({ length: sourceQuestion.options.length }, (_, idx) => idx)) : Array.from({ length: sourceQuestion.options.length }, (_, idx) => idx);
+
+    const shuffledOptions = optionOrder.map(optIndex => sourceQuestion.options[optIndex]);
+    const shuffledCorrectIndex = optionOrder.indexOf(sourceQuestion.correct);
+
+    return {
+      ...sourceQuestion,
+      options: shuffledOptions,
+      correct: shuffledCorrectIndex,
+      originalQuestionIndex: originalIndex
+    };
+  });
+
+  return {
+    questionOrder,
+    questions: randomizedQuestions
+  };
 }
 
 // --------------------------------------------------------------------------
@@ -198,20 +222,20 @@ function startQuiz(quizId, isRetake = false) {
   const quiz = state.data.quizzes[quizId];
   if (!quiz) return;
 
-  state.activeQuiz = quiz;
+  const randomSession = buildRandomizedQuizSession(quiz, isRetake, isRetake);
+
+  state.activeQuiz = {
+    ...quiz,
+    questions: randomSession.questions
+  };
+
   state.currentQuestionIndex = 0;
   state.userResponses = {};
   state.questionStatuses = {};
-
-  // Generate question order - randomize if reattempting
-  if (isRetake) {
-    state.questionOrder = shuffleArray(Array.from({length: quiz.questions.length}, (_, i) => i));
-  } else {
-    state.questionOrder = Array.from({length: quiz.questions.length}, (_, i) => i);
-  }
+  state.questionOrder = randomSession.questionOrder;
 
   // Initialize all questions as Not Visited (0)
-  for (let i = 0; i < quiz.questions.length; i++) {
+  for (let i = 0; i < state.activeQuiz.questions.length; i++) {
     state.questionStatuses[i] = 0;
   }
   // Current question is now visited but not answered (1)
@@ -260,7 +284,7 @@ function updateTimerDisplay() {
   const mins = Math.floor(state.timerSecondsRemaining / 60);
   const secs = state.timerSecondsRemaining % 60;
   const formatted = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-  
+
   const timerElem = document.getElementById("time-left-display");
   const timerBox = document.getElementById("timer-container");
   timerElem.textContent = formatted;
@@ -272,14 +296,9 @@ function updateTimerDisplay() {
   }
 }
 
-function getActualQuestionIndex() {
-  return state.questionOrder[state.currentQuestionIndex];
-}
-
 function renderQuestion() {
   const quiz = state.activeQuiz;
-  const actualQIdx = getActualQuestionIndex();
-  const q = quiz.questions[actualQIdx];
+  const q = quiz.questions[state.currentQuestionIndex];
   const qNum = state.currentQuestionIndex + 1;
 
   document.getElementById("question-number-display").textContent = `Question ${qNum} of ${quiz.questions.length}`;
@@ -289,7 +308,7 @@ function renderQuestion() {
   optionsContainer.innerHTML = "";
 
   const optionLetters = ["A", "B", "C", "D"];
-  const currentSelection = state.userResponses[actualQIdx];
+  const currentSelection = state.userResponses[state.currentQuestionIndex];
 
   q.options.forEach((optText, optIdx) => {
     const row = document.createElement("div");
@@ -317,41 +336,40 @@ function renderQuestion() {
 }
 
 function selectOption(optIdx) {
-  const actualQIdx = getActualQuestionIndex();
-  state.userResponses[actualQIdx] = optIdx;
+  state.userResponses[state.currentQuestionIndex] = optIdx;
   renderQuestion();
 }
 
 function handleSaveAndNext() {
-  const actualQIdx = getActualQuestionIndex();
-  const hasAnswer = state.userResponses[actualQIdx] !== undefined && state.userResponses[actualQIdx] !== null;
+  const curr = state.currentQuestionIndex;
+  const hasAnswer = state.userResponses[curr] !== undefined && state.userResponses[curr] !== null;
 
   if (hasAnswer) {
-    state.questionStatuses[actualQIdx] = 2; // Answered (Green)
+    state.questionStatuses[curr] = 2; // Answered (Green)
   } else {
-    state.questionStatuses[actualQIdx] = 1; // Not Answered (Red)
+    state.questionStatuses[curr] = 1; // Not Answered (Red)
   }
 
   advanceToNextQuestion();
 }
 
 function handleMarkForReviewAndNext() {
-  const actualQIdx = getActualQuestionIndex();
-  const hasAnswer = state.userResponses[actualQIdx] !== undefined && state.userResponses[actualQIdx] !== null;
+  const curr = state.currentQuestionIndex;
+  const hasAnswer = state.userResponses[curr] !== undefined && state.userResponses[curr] !== null;
 
   if (hasAnswer) {
-    state.questionStatuses[actualQIdx] = 4; // Answered & Marked for Review (Violet with tick)
+    state.questionStatuses[curr] = 4; // Answered & Marked for Review (Violet with tick)
   } else {
-    state.questionStatuses[actualQIdx] = 3; // Marked for Review without answer (Violet)
+    state.questionStatuses[curr] = 3; // Marked for Review without answer (Violet)
   }
 
   advanceToNextQuestion();
 }
 
 function handleClearResponse() {
-  const actualQIdx = getActualQuestionIndex();
-  delete state.userResponses[actualQIdx];
-  state.questionStatuses[actualQIdx] = 1; // Visited but unselected
+  const curr = state.currentQuestionIndex;
+  delete state.userResponses[curr];
+  state.questionStatuses[curr] = 1; // Visited but unselected
   renderQuestion();
   renderPalette();
 }
@@ -372,20 +390,19 @@ function advanceToNextQuestion() {
 }
 
 function navigateToQuestion(newIndex) {
-  const currQIdx = getActualQuestionIndex();
+  const curr = state.currentQuestionIndex;
   // If moving away from current question and it was visited but untouched, ensure it's marked Not Answered if no answer
-  if (state.questionStatuses[currQIdx] === 0 || state.questionStatuses[currQIdx] === 1) {
-    if (state.userResponses[currQIdx] === undefined || state.userResponses[currQIdx] === null) {
-      state.questionStatuses[currQIdx] = 1;
+  if (state.questionStatuses[curr] === 0 || state.questionStatuses[curr] === 1) {
+    if (state.userResponses[curr] === undefined || state.userResponses[curr] === null) {
+      state.questionStatuses[curr] = 1;
     }
   }
 
   state.currentQuestionIndex = newIndex;
-  const newQIdx = getActualQuestionIndex();
 
   // If the target question was Not Visited, set to Not Answered
-  if (state.questionStatuses[newQIdx] === 0) {
-    state.questionStatuses[newQIdx] = 1;
+  if (state.questionStatuses[newIndex] === 0) {
+    state.questionStatuses[newIndex] = 1;
   }
 
   renderQuestion();
@@ -410,8 +427,7 @@ function renderPalette() {
   const total = state.activeQuiz.questions.length;
 
   for (let i = 0; i < total; i++) {
-    const actualQIdx = state.questionOrder[i];
-    const status = state.questionStatuses[actualQIdx] || 0;
+    const status = state.questionStatuses[i] || 0;
     const btn = document.createElement("button");
     btn.textContent = i + 1;
     btn.onclick = () => navigateToQuestion(i);
@@ -461,8 +477,7 @@ function openSubmitModal() {
   let ans = 0, notAns = 0, rev = 0, ansRev = 0, notVis = 0;
 
   for (let i = 0; i < total; i++) {
-    const actualQIdx = state.questionOrder[i];
-    const s = state.questionStatuses[actualQIdx] || 0;
+    const s = state.questionStatuses[i] || 0;
     if (s === 2) ans++;
     else if (s === 1) notAns++;
     else if (s === 3) rev++;
@@ -659,7 +674,7 @@ window.returnToDashboard = returnToDashboard;
 
 function reattemptQuiz() {
   if (state.activeQuiz) {
-    if (confirm("Would you like to restart this quiz from Question 1? Your timer and responses will be reset. Questions will be presented in random order.")) {
+    if (confirm("Would you like to restart this quiz from Question 1? Your timer and responses will be reset. Questions and answer options will be randomly shuffled.")) {
       startQuiz(state.activeQuiz.id, true);
     }
   } else {
