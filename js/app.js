@@ -1,24 +1,30 @@
 /**
  * SSC CGL CBT Exam Engine (TCS iON / Testranking Style)
+ * DRY + testable + deterministic quiz session generation
  */
 
-// Application State
+const QUESTION_STATUS = {
+  NOT_VISITED: 0,
+  NOT_ANSWERED: 1,
+  ANSWERED: 2,
+  MARKED_REVIEW: 3,
+  ANSWERED_REVIEW: 4
+};
+
 const state = {
   data: null,
   activeCategory: "sports",
   activeQuiz: null,
   currentQuestionIndex: 0,
-  userResponses: {}, // qIndex: optionIndex (0-3 or null)
-  questionStatuses: {}, // qIndex: 0 (not-visited), 1 (not-answered), 2 (answered), 3 (marked-review), 4 (ans-marked-review)
+  userResponses: {},
+  questionStatuses: {},
   timerSecondsRemaining: 25 * 60,
   timerInterval: null,
-  isReviewMode: false,
   activeSolutionFilter: "all",
   testHistory: {},
   questionOrder: []
 };
 
-// Initialize Application
 document.addEventListener("DOMContentLoaded", () => {
   loadData();
   loadTestHistory();
@@ -29,25 +35,25 @@ document.addEventListener("DOMContentLoaded", () => {
 function loadData() {
   if (window.QUIZ_DATA) {
     state.data = window.QUIZ_DATA;
-  } else {
-    fetch("data/quizzes.json")
-      .then(res => res.json())
-      .then(d => {
-        state.data = d;
-        renderDashboard();
-      })
-      .catch(err => {
-        console.error("Failed to load quiz data:", err);
-      });
+    renderDashboard();
+    return;
   }
+
+  fetch("data/quizzes.json")
+    .then(res => res.json())
+    .then(data => {
+      state.data = data;
+      renderDashboard();
+    })
+    .catch(err => {
+      console.error("Failed to load quiz data:", err);
+    });
 }
 
 function loadTestHistory() {
   try {
     const saved = localStorage.getItem("ssc_cgl_quiz_history");
-    if (saved) {
-      state.testHistory = JSON.parse(saved);
-    }
+    state.testHistory = saved ? JSON.parse(saved) : {};
   } catch (e) {
     console.warn("LocalStorage access failed:", e);
   }
@@ -56,8 +62,8 @@ function loadTestHistory() {
 function saveTestHistory(quizId, score, total) {
   try {
     state.testHistory[quizId] = {
-      score: score,
-      total: total,
+      score,
+      total,
       timestamp: new Date().toISOString()
     };
     localStorage.setItem("ssc_cgl_quiz_history", JSON.stringify(state.testHistory));
@@ -67,18 +73,15 @@ function saveTestHistory(quizId, score, total) {
 }
 
 function setupEventListeners() {
-  // Navigation actions in Exam
   document.getElementById("btn-save-next").addEventListener("click", handleSaveAndNext);
   document.getElementById("btn-mark-review").addEventListener("click", handleMarkForReviewAndNext);
   document.getElementById("btn-clear-response").addEventListener("click", handleClearResponse);
   document.getElementById("btn-prev").addEventListener("click", handlePrevious);
 
-  // Submit actions
   document.getElementById("btn-submit-exam").addEventListener("click", openSubmitModal);
   document.getElementById("modal-btn-confirm-submit").addEventListener("click", submitTest);
   document.getElementById("modal-btn-cancel-submit").addEventListener("click", closeSubmitModal);
 
-  // Back to dashboard
   document.getElementById("btn-back-to-dash").addEventListener("click", returnToDashboard);
   document.getElementById("btn-reattempt").addEventListener("click", () => {
     if (state.activeQuiz) {
@@ -86,19 +89,18 @@ function setupEventListeners() {
     }
   });
 
-  // Solution filters
   document.querySelectorAll(".filter-tab").forEach(tab => {
-    tab.addEventListener("click", (e) => {
+    tab.addEventListener("click", (event) => {
       document.querySelectorAll(".filter-tab").forEach(t => t.classList.remove("active"));
-      e.target.classList.add("active");
-      state.activeSolutionFilter = e.target.dataset.filter;
+      event.target.classList.add("active");
+      state.activeSolutionFilter = event.target.dataset.filter;
       renderSolutions();
     });
   });
 }
 
-function shuffleArray(array) {
-  const copy = [...array];
+function shuffle(items) {
+  const copy = [...items];
   for (let i = copy.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [copy[i], copy[j]] = [copy[j], copy[i]];
@@ -106,74 +108,100 @@ function shuffleArray(array) {
   return copy;
 }
 
-function buildRandomizedQuizSession(quiz, randomizeQuestions, randomizeOptions) {
-  const originalOrder = Array.from({ length: quiz.questions.length }, (_, idx) => idx);
-  const questionOrder = randomizeQuestions ? shuffleArray(originalOrder) : originalOrder;
+function buildQuizSession(quiz, randomizeQuestions = false, randomizeOptions = true) {
+  const originalIndexes = Array.from({ length: quiz.questions.length }, (_, index) => index);
+  const questionIndexes = randomizeQuestions ? shuffle(originalIndexes) : originalIndexes;
 
-  const randomizedQuestions = questionOrder.map((originalIndex) => {
+  const questions = questionIndexes.map(originalIndex => {
     const sourceQuestion = quiz.questions[originalIndex];
-    const optionOrder = randomizeOptions ? shuffleArray(Array.from({ length: sourceQuestion.options.length }, (_, idx) => idx)) : Array.from({ length: sourceQuestion.options.length }, (_, idx) => idx);
+    const optionIndexes = Array.from({ length: sourceQuestion.options.length }, (_, i) => i);
+    const shuffledOptionIndexes = randomizeOptions ? shuffle(optionIndexes) : optionIndexes;
 
-    const shuffledOptions = optionOrder.map(optIndex => sourceQuestion.options[optIndex]);
-    const shuffledCorrectIndex = optionOrder.indexOf(sourceQuestion.correct);
+    const shuffledOptions = shuffledOptionIndexes.map(optionIndex => sourceQuestion.options[optionIndex]);
+    const correctIndex = shuffledOptionIndexes.indexOf(sourceQuestion.correct);
 
     return {
       ...sourceQuestion,
       options: shuffledOptions,
-      correct: shuffledCorrectIndex,
+      correct: correctIndex,
       originalQuestionIndex: originalIndex
     };
   });
 
   return {
-    questionOrder,
-    questions: randomizedQuestions
+    questionOrder: questionIndexes,
+    questions
   };
 }
 
-// --------------------------------------------------------------------------
-// Dashboard Rendering
-// --------------------------------------------------------------------------
+function buildSessionForAttempt(quiz, isRetake) {
+  return buildQuizSession(quiz, isRetake, true);
+}
+
+function resetAttemptState(quiz, session) {
+  state.activeQuiz = {
+    id: quiz.id,
+    title: quiz.title,
+    category_id: quiz.category_id,
+    category_name: quiz.category_name,
+    month_name: quiz.month_name,
+    time_limit_minutes: quiz.time_limit_minutes,
+    questions: session.questions
+  };
+
+  state.currentQuestionIndex = 0;
+  state.userResponses = {};
+  state.questionStatuses = {};
+  state.questionOrder = session.questionOrder;
+
+  state.activeQuiz.questions.forEach((_, index) => {
+    state.questionStatuses[index] = QUESTION_STATUS.NOT_VISITED;
+  });
+
+  state.questionStatuses[0] = QUESTION_STATUS.NOT_ANSWERED;
+  state.timerSecondsRemaining = (quiz.time_limit_minutes || 25) * 60;
+}
+
 function renderDashboard() {
   if (!state.data) return;
 
-  // Render Category Cards
-  const catContainer = document.getElementById("category-grid");
-  catContainer.innerHTML = "";
+  const categoryGrid = document.getElementById("category-grid");
+  categoryGrid.innerHTML = "";
 
-  state.data.categories.forEach(cat => {
+  state.data.categories.forEach(category => {
+    const catQuizzes = state.data.months
+      .map(month => `${category.id}_${month.id}`)
+      .filter(quizId => state.data.quizzes[quizId]);
+
+    const attemptedCount = catQuizzes.filter(quizId => state.testHistory[quizId]).length;
+
     const card = document.createElement("div");
-    card.className = `category-card ${cat.id === state.activeCategory ? "active" : ""}`;
-    card.onclick = () => selectCategory(cat.id);
-
-    // Count quizzes in this category
-    const catQuizzes = state.data.months.map(m => `${cat.id}_${m.id}`).filter(id => state.data.quizzes[id]);
-    const attemptedCount = catQuizzes.filter(id => state.testHistory[id]).length;
-
+    card.className = `category-card ${category.id === state.activeCategory ? "active" : ""}`;
+    card.onclick = () => selectCategory(category.id);
     card.innerHTML = `
       <div class="category-card-top">
-        <div class="category-icon-box" style="background-color: ${cat.color}15; color: ${cat.color}">
-          ${cat.icon}
+        <div class="category-icon-box" style="background-color: ${category.color}15; color: ${category.color}">
+          ${category.icon}
         </div>
         <div class="category-card-info">
-          <h3>${cat.name}</h3>
-          <p>${cat.description}</p>
+          <h3>${category.name}</h3>
+          <p>${category.description}</p>
         </div>
       </div>
       <div class="category-quiz-counter">
         <span>7 Monthly Quizzes (175 Qs)</span>
-        <span>${attemptedCount > 0 ? `Completed: ${attemptedCount}/7` : 'Ready to Start'}</span>
+        <span>${attemptedCount > 0 ? `Completed: ${attemptedCount}/7` : "Ready to Start"}</span>
       </div>
     `;
-    catContainer.appendChild(card);
+    categoryGrid.appendChild(card);
   });
 
   renderCategoryQuizzes();
 }
 
-function selectCategory(catId) {
-  state.activeCategory = catId;
-  document.querySelectorAll(".category-card").forEach(c => c.classList.remove("active"));
+function selectCategory(categoryId) {
+  state.activeCategory = categoryId;
+  document.querySelectorAll(".category-card").forEach(card => card.classList.remove("active"));
   renderDashboard();
 }
 
@@ -182,11 +210,11 @@ function renderCategoryQuizzes() {
   const heading = document.getElementById("selected-category-title");
   container.innerHTML = "";
 
-  const currentCat = state.data.categories.find(c => c.id === state.activeCategory);
-  heading.innerHTML = `${currentCat.icon} ${currentCat.name} - Monthly SSC CGL Quizzes`;
+  const currentCategory = state.data.categories.find(category => category.id === state.activeCategory);
+  heading.innerHTML = `${currentCategory.icon} ${currentCategory.name} - Monthly SSC CGL Quizzes`;
 
-  state.data.months.forEach((m, idx) => {
-    const quizId = `${state.activeCategory}_${m.id}`;
+  state.data.months.forEach(month => {
+    const quizId = `${state.activeCategory}_${month.id}`;
     const quiz = state.data.quizzes[quizId];
     if (!quiz) return;
 
@@ -198,71 +226,42 @@ function renderCategoryQuizzes() {
       <div>
         <div style="display: flex; justify-content: space-between; align-items: flex-start;">
           <h4 class="quiz-month-title">${quiz.title}</h4>
-          ${history ? `<span class="score-badge">Score: ${history.score.toFixed(1)} / 50</span>` : ''}
+          ${history ? `<span class="score-badge">Score: ${history.score.toFixed(1)} / 50</span>` : ""}
         </div>
         <div class="quiz-item-meta">
           <span>📝 <strong>25 Questions</strong> (Multiple Choice)</span>
           <span>⏱️ <strong>25 Minutes</strong> Time Limit</span>
           <span>🎯 <strong>50 Marks</strong> (+2.00 / -0.50 Marking)</span>
-          <span>📅 Focus: <strong>${m.name}</strong></span>
+          <span>📅 Focus: <strong>${month.name}</strong></span>
         </div>
       </div>
       <button type="button" class="btn-start-test" onclick="window.startQuiz('${quizId}')">
-        ${history ? 'Re-take Quiz' : 'Start Test'} ➔
+        ${history ? "Re-take Quiz" : "Start Test"} ➔
       </button>
     `;
     container.appendChild(card);
   });
 }
 
-// --------------------------------------------------------------------------
-// CBT Examination Engine
-// --------------------------------------------------------------------------
 function startQuiz(quizId, isRetake = false) {
   const quiz = state.data.quizzes[quizId];
   if (!quiz) return;
 
-  // Always randomize options for variety, randomize questions only on retake
-  const randomSession = buildRandomizedQuizSession(quiz, isRetake, true);
+  const session = buildSessionForAttempt(quiz, isRetake);
+  resetAttemptState(quiz, session);
 
-  // Store only the randomized data; don't spread the original quiz
-  state.activeQuiz = {
-    id: quiz.id,
-    title: quiz.title,
-    category_id: quiz.category_id,
-    category_name: quiz.category_name,
-    month_name: quiz.month_name,
-    time_limit_minutes: quiz.time_limit_minutes,
-    questions: randomSession.questions
-  };
-
-  state.currentQuestionIndex = 0;
-  state.userResponses = {};
-  state.questionStatuses = {};
-  state.questionOrder = randomSession.questionOrder;
-
-  // Initialize all questions as Not Visited (0)
-  for (let i = 0; i < state.activeQuiz.questions.length; i++) {
-    state.questionStatuses[i] = 0;
-  }
-  // Current question is now visited but not answered (1)
-  state.questionStatuses[0] = 1;
-
-  // Setup timer
-  state.timerSecondsRemaining = (quiz.time_limit_minutes || 25) * 60;
   startTimer();
 
-  // Switch View
   document.getElementById("dashboard-view").style.display = "none";
   document.getElementById("result-view").classList.remove("active");
   document.getElementById("result-view").style.display = "none";
+
   const examView = document.getElementById("exam-active-view");
   examView.style.display = "flex";
   examView.classList.add("active");
   document.getElementById("exam-header-timer").style.display = "flex";
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  window.scrollTo({ top: 0, behavior: "smooth" });
 
-  // Update Exam Titles
   document.getElementById("exam-header-title").textContent = quiz.title;
   document.getElementById("exam-header-subtitle").textContent = "SSC CGL (Tier-1) - General Awareness CBT Mock";
   document.getElementById("section-display-tag").textContent = `${state.data.categories.find(c => c.id === quiz.category_id)?.name} (${quiz.month_name})`;
@@ -276,7 +275,7 @@ function startTimer() {
   updateTimerDisplay();
 
   state.timerInterval = setInterval(() => {
-    state.timerSecondsRemaining--;
+    state.timerSecondsRemaining -= 1;
     updateTimerDisplay();
 
     if (state.timerSecondsRemaining <= 0) {
@@ -296,20 +295,29 @@ function updateTimerDisplay() {
   const timerBox = document.getElementById("timer-container");
   timerElem.textContent = formatted;
 
-  if (state.timerSecondsRemaining <= 300) {
-    timerBox.classList.add("warning");
-  } else {
-    timerBox.classList.remove("warning");
-  }
+  timerBox.classList.toggle("warning", state.timerSecondsRemaining <= 300);
+}
+
+function getCurrentQuestion() {
+  return state.activeQuiz.questions[state.currentQuestionIndex];
+}
+
+function isQuestionAnswered(questionIndex) {
+  const value = state.userResponses[questionIndex];
+  return value !== undefined && value !== null;
+}
+
+function setQuestionStatusByAnswer(questionIndex) {
+  const hasAnswer = isQuestionAnswered(questionIndex);
+  state.questionStatuses[questionIndex] = hasAnswer ? QUESTION_STATUS.ANSWERED : QUESTION_STATUS.NOT_ANSWERED;
 }
 
 function renderQuestion() {
-  const quiz = state.activeQuiz;
-  const q = quiz.questions[state.currentQuestionIndex];
+  const question = getCurrentQuestion();
   const qNum = state.currentQuestionIndex + 1;
 
-  document.getElementById("question-number-display").textContent = `Question ${qNum} of ${quiz.questions.length}`;
-  document.getElementById("question-text-area").textContent = q.question;
+  document.getElementById("question-number-display").textContent = `Question ${qNum} of ${state.activeQuiz.questions.length}`;
+  document.getElementById("question-text-area").textContent = question.question;
 
   const optionsContainer = document.getElementById("options-container");
   optionsContainer.innerHTML = "";
@@ -317,66 +325,54 @@ function renderQuestion() {
   const optionLetters = ["A", "B", "C", "D"];
   const currentSelection = state.userResponses[state.currentQuestionIndex];
 
-  q.options.forEach((optText, optIdx) => {
+  question.options.forEach((optionText, optionIndex) => {
     const row = document.createElement("div");
-    row.className = `option-row ${currentSelection === optIdx ? "selected" : ""}`;
-    row.onclick = () => selectOption(optIdx);
+    row.className = `option-row ${currentSelection === optionIndex ? "selected" : ""}`;
+    row.onclick = () => selectOption(optionIndex);
 
     row.innerHTML = `
-      <input type="radio" name="cbt_option" class="option-radio" id="opt_${optIdx}" ${currentSelection === optIdx ? "checked" : ""}>
-      <label class="option-label" for="opt_${optIdx}">
-        <span class="option-index-badge">(${optionLetters[optIdx]})</span>
-        <span>${optText}</span>
+      <input type="radio" name="cbt_option" class="option-radio" id="opt_${optionIndex}" ${currentSelection === optionIndex ? "checked" : ""}>
+      <label class="option-label" for="opt_${optionIndex}">
+        <span class="option-index-badge">(${optionLetters[optionIndex]})</span>
+        <span>${optionText}</span>
       </label>
     `;
+
     optionsContainer.appendChild(row);
   });
 
-  // Highlight active button in palette
   document.querySelectorAll(".q-btn").forEach((btn, idx) => {
-    if (idx === state.currentQuestionIndex) {
-      btn.classList.add("active");
-    } else {
-      btn.classList.remove("active");
-    }
+    btn.classList.toggle("active", idx === state.currentQuestionIndex);
   });
 }
 
-function selectOption(optIdx) {
-  state.userResponses[state.currentQuestionIndex] = optIdx;
+function selectOption(optionIndex) {
+  state.userResponses[state.currentQuestionIndex] = optionIndex;
+  setQuestionStatusByAnswer(state.currentQuestionIndex);
   renderQuestion();
+  renderPalette();
 }
 
 function handleSaveAndNext() {
-  const curr = state.currentQuestionIndex;
-  const hasAnswer = state.userResponses[curr] !== undefined && state.userResponses[curr] !== null;
-
-  if (hasAnswer) {
-    state.questionStatuses[curr] = 2; // Answered (Green)
-  } else {
-    state.questionStatuses[curr] = 1; // Not Answered (Red)
-  }
-
+  const currentIndex = state.currentQuestionIndex;
+  setQuestionStatusByAnswer(currentIndex);
   advanceToNextQuestion();
 }
 
 function handleMarkForReviewAndNext() {
-  const curr = state.currentQuestionIndex;
-  const hasAnswer = state.userResponses[curr] !== undefined && state.userResponses[curr] !== null;
-
-  if (hasAnswer) {
-    state.questionStatuses[curr] = 4; // Answered & Marked for Review (Violet with tick)
-  } else {
-    state.questionStatuses[curr] = 3; // Marked for Review without answer (Violet)
-  }
+  const currentIndex = state.currentQuestionIndex;
+  const hasAnswer = isQuestionAnswered(currentIndex);
+  state.questionStatuses[currentIndex] = hasAnswer
+    ? QUESTION_STATUS.ANSWERED_REVIEW
+    : QUESTION_STATUS.MARKED_REVIEW;
 
   advanceToNextQuestion();
 }
 
 function handleClearResponse() {
-  const curr = state.currentQuestionIndex;
-  delete state.userResponses[curr];
-  state.questionStatuses[curr] = 1; // Visited but unselected
+  const currentIndex = state.currentQuestionIndex;
+  delete state.userResponses[currentIndex];
+  state.questionStatuses[currentIndex] = QUESTION_STATUS.NOT_ANSWERED;
   renderQuestion();
   renderPalette();
 }
@@ -390,35 +386,32 @@ function handlePrevious() {
 function advanceToNextQuestion() {
   if (state.currentQuestionIndex < state.activeQuiz.questions.length - 1) {
     navigateToQuestion(state.currentQuestionIndex + 1);
-  } else {
-    renderPalette();
-    openSubmitModal();
+    return;
   }
+
+  renderPalette();
+  openSubmitModal();
 }
 
 function navigateToQuestion(newIndex) {
-  const curr = state.currentQuestionIndex;
-  // If moving away from current question and it was visited but untouched, ensure it's marked Not Answered if no answer
-  if (state.questionStatuses[curr] === 0 || state.questionStatuses[curr] === 1) {
-    if (state.userResponses[curr] === undefined || state.userResponses[curr] === null) {
-      state.questionStatuses[curr] = 1;
+  const currentIndex = state.currentQuestionIndex;
+
+  if (state.questionStatuses[currentIndex] === QUESTION_STATUS.NOT_VISITED || state.questionStatuses[currentIndex] === QUESTION_STATUS.NOT_ANSWERED) {
+    if (!isQuestionAnswered(currentIndex)) {
+      state.questionStatuses[currentIndex] = QUESTION_STATUS.NOT_ANSWERED;
     }
   }
 
   state.currentQuestionIndex = newIndex;
 
-  // If the target question was Not Visited, set to Not Answered
-  if (state.questionStatuses[newIndex] === 0) {
-    state.questionStatuses[newIndex] = 1;
+  if (state.questionStatuses[newIndex] === QUESTION_STATUS.NOT_VISITED) {
+    state.questionStatuses[newIndex] = QUESTION_STATUS.NOT_ANSWERED;
   }
 
   renderQuestion();
   renderPalette();
 }
 
-// --------------------------------------------------------------------------
-// Question Palette Rendering (TCS iON 5-State System)
-// --------------------------------------------------------------------------
 function renderPalette() {
   const container = document.getElementById("question-buttons-grid");
   container.innerHTML = "";
@@ -433,42 +426,45 @@ function renderPalette() {
 
   const total = state.activeQuiz.questions.length;
 
-  for (let i = 0; i < total; i++) {
-    const status = state.questionStatuses[i] || 0;
+  for (let index = 0; index < total; index++) {
+    const status = state.questionStatuses[index] || QUESTION_STATUS.NOT_VISITED;
     const btn = document.createElement("button");
-    btn.textContent = i + 1;
-    btn.onclick = () => navigateToQuestion(i);
+    btn.textContent = index + 1;
+    btn.onclick = () => navigateToQuestion(index);
 
-    let cls = "q-btn ";
-    if (i === state.currentQuestionIndex) cls += "active ";
+    let className = "q-btn ";
+    if (index === state.currentQuestionIndex) className += "active ";
 
     switch (status) {
-      case 0:
-        cls += "not-visited";
+      case QUESTION_STATUS.NOT_VISITED:
+        className += "not-visited";
         counts.notVisited++;
         break;
-      case 1:
-        cls += "not-answered";
+      case QUESTION_STATUS.NOT_ANSWERED:
+        className += "not-answered";
         counts.notAnswered++;
         break;
-      case 2:
-        cls += "answered";
+      case QUESTION_STATUS.ANSWERED:
+        className += "answered";
         counts.answered++;
         break;
-      case 3:
-        cls += "marked-review";
+      case QUESTION_STATUS.MARKED_REVIEW:
+        className += "marked-review";
         counts.markedReview++;
         break;
-      case 4:
-        cls += "ans-marked-review";
+      case QUESTION_STATUS.ANSWERED_REVIEW:
+        className += "ans-marked-review";
         counts.ansMarkedReview++;
         break;
+      default:
+        className += "not-visited";
+        counts.notVisited++;
     }
-    btn.className = cls;
+
+    btn.className = className;
     container.appendChild(btn);
   }
 
-  // Update Legend Counter Numbers
   document.getElementById("cnt-not-visited").textContent = counts.notVisited;
   document.getElementById("cnt-not-answered").textContent = counts.notAnswered;
   document.getElementById("cnt-answered").textContent = counts.answered;
@@ -476,19 +472,21 @@ function renderPalette() {
   document.getElementById("cnt-ans-marked-review").textContent = counts.ansMarkedReview;
 }
 
-// --------------------------------------------------------------------------
-// Submission & Results
-// --------------------------------------------------------------------------
 function openSubmitModal() {
   const total = state.activeQuiz.questions.length;
-  let ans = 0, notAns = 0, rev = 0, ansRev = 0, notVis = 0;
+  let ans = 0;
+  let notAns = 0;
+  let rev = 0;
+  let ansRev = 0;
+  let notVis = 0;
 
-  for (let i = 0; i < total; i++) {
-    const s = state.questionStatuses[i] || 0;
-    if (s === 2) ans++;
-    else if (s === 1) notAns++;
-    else if (s === 3) rev++;
-    else if (s === 4) ansRev++;
+  for (let index = 0; index < total; index++) {
+    const status = state.questionStatuses[index] || QUESTION_STATUS.NOT_VISITED;
+
+    if (status === QUESTION_STATUS.ANSWERED) ans++;
+    else if (status === QUESTION_STATUS.NOT_ANSWERED) notAns++;
+    else if (status === QUESTION_STATUS.MARKED_REVIEW) rev++;
+    else if (status === QUESTION_STATUS.ANSWERED_REVIEW) ansRev++;
     else notVis++;
   }
 
@@ -506,25 +504,28 @@ function closeSubmitModal() {
   document.getElementById("submission-modal").classList.remove("active");
 }
 
+function isQuestionEvaluated(questionIndex) {
+  const status = state.questionStatuses[questionIndex];
+  const answer = state.userResponses[questionIndex];
+  return (status === QUESTION_STATUS.ANSWERED || status === QUESTION_STATUS.ANSWERED_REVIEW) && answer !== undefined && answer !== null;
+}
+
 function submitTest() {
   closeSubmitModal();
   clearInterval(state.timerInterval);
 
   const quiz = state.activeQuiz;
   const questions = quiz.questions;
+
   let correctCount = 0;
   let incorrectCount = 0;
   let unattemptedCount = 0;
 
-  questions.forEach((q, idx) => {
-    const userAns = state.userResponses[idx];
-    const status = state.questionStatuses[idx];
+  questions.forEach((question, index) => {
+    const userAnswer = state.userResponses[index];
 
-    // SSC CGL rule: Questions Answered (2) OR Answered & Marked for Review (4) are evaluated!
-    const isEvaluated = (status === 2 || status === 4) && userAns !== undefined && userAns !== null;
-
-    if (isEvaluated) {
-      if (userAns === q.correct) {
+    if (isQuestionEvaluated(index)) {
+      if (userAnswer === question.correct) {
         correctCount++;
       } else {
         incorrectCount++;
@@ -542,21 +543,19 @@ function submitTest() {
 
   saveTestHistory(quiz.id, totalScore, 50.0);
 
-  // Render Result View
-  const examView = document.getElementById("exam-active-view");
-  examView.classList.remove("active");
-  examView.style.display = "none";
+  document.getElementById("exam-active-view").classList.remove("active");
+  document.getElementById("exam-active-view").style.display = "none";
   document.getElementById("exam-header-timer").style.display = "none";
 
   const resultView = document.getElementById("result-view");
   resultView.classList.add("active");
   resultView.style.display = "block";
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  window.scrollTo({ top: 0, behavior: "smooth" });
 
   document.getElementById("res-quiz-title").textContent = quiz.title;
   document.getElementById("res-total-score").textContent = `${totalScore.toFixed(2)} / 50.0`;
   document.getElementById("res-accuracy").textContent = `${accuracy}%`;
-  document.getElementById("res-attempted").textContent = `${attemptedCount} / 25`;
+  document.getElementById("res-attempted").textContent = `${attemptedCount} / ${questions.length}`;
   document.getElementById("res-correct").textContent = correctCount;
   document.getElementById("res-incorrect").textContent = incorrectCount;
   document.getElementById("res-unattempted").textContent = unattemptedCount;
@@ -570,16 +569,20 @@ function renderSolutions() {
 
   const quiz = state.activeQuiz;
   if (!quiz) return;
+
   const optionLetters = ["A", "B", "C", "D"];
 
-  // Update filter tab counts dynamically
-  let corr = 0, incorr = 0, unatt = 0;
-  quiz.questions.forEach((q, idx) => {
-    const userAns = state.userResponses[idx];
-    const status = state.questionStatuses[idx];
-    const isEvaluated = (status === 2 || status === 4) && userAns !== undefined && userAns !== null;
-    if (isEvaluated) {
-      if (userAns === q.correct) corr++;
+  let corr = 0;
+  let incorr = 0;
+  let unatt = 0;
+
+  quiz.questions.forEach((question, index) => {
+    const userAnswer = state.userResponses[index];
+    const status = state.questionStatuses[index];
+    const evaluated = isQuestionEvaluated(index);
+
+    if (evaluated) {
+      if (userAnswer === question.correct) corr++;
       else incorr++;
     } else {
       unatt++;
@@ -587,25 +590,24 @@ function renderSolutions() {
   });
 
   const tabAll = document.querySelector('.filter-tab[data-filter="all"]');
-  const tabInc = document.querySelector('.filter-tab[data-filter="incorrect"]');
-  const tabUnatt = document.querySelector('.filter-tab[data-filter="unattempted"]');
-  const tabCorr = document.querySelector('.filter-tab[data-filter="correct"]');
-  if (tabAll) tabAll.textContent = `All Questions (${quiz.questions.length})`;
-  if (tabInc) tabInc.textContent = `❌ Incorrect (${incorr})`;
-  if (tabUnatt) tabUnatt.textContent = `⚪ Unattempted (${unatt})`;
-  if (tabCorr) tabCorr.textContent = `✔ Correct (${corr})`;
+  const tabCorrect = document.querySelector('.filter-tab[data-filter="correct"]');
+  const tabIncorrect = document.querySelector('.filter-tab[data-filter="incorrect"]');
+  const tabUnattempted = document.querySelector('.filter-tab[data-filter="unattempted"]');
 
-  quiz.questions.forEach((q, idx) => {
-    const userAns = state.userResponses[idx];
-    const status = state.questionStatuses[idx];
-    const isEvaluated = (status === 2 || status === 4) && userAns !== undefined && userAns !== null;
+  if (tabAll) tabAll.textContent = `All Questions (${quiz.questions.length})`;
+  if (tabCorrect) tabCorrect.textContent = `✔ Correct (${corr})`;
+  if (tabIncorrect) tabIncorrect.textContent = `❌ Incorrect (${incorr})`;
+  if (tabUnattempted) tabUnattempted.textContent = `⚪ Unattempted (${unatt})`;
+
+  quiz.questions.forEach((question, index) => {
+    const userAnswer = state.userResponses[index];
+    const evaluated = isQuestionEvaluated(index);
 
     let evalStatus = "unattempted";
-    if (isEvaluated) {
-      evalStatus = userAns === q.correct ? "correct" : "incorrect";
+    if (evaluated) {
+      evalStatus = userAnswer === question.correct ? "correct" : "incorrect";
     }
 
-    // Filter check
     if (state.activeSolutionFilter !== "all" && state.activeSolutionFilter !== evalStatus) {
       return;
     }
@@ -619,32 +621,36 @@ function renderSolutions() {
 
     card.innerHTML = `
       <div class="solution-header">
-        <span>Question ${idx + 1}</span>
+        <span>Question ${index + 1}</span>
         <span>${statusBadgeText}</span>
       </div>
-      <div class="solution-question-text">${q.question}</div>
+      <div class="solution-question-text">${question.question}</div>
       <div class="solution-options-list">
-        ${q.options.map((opt, oIdx) => {
-          let optCls = "sol-opt";
+        ${question.options.map((optionText, optionIndex) => {
+          let className = "sol-opt";
           let icon = "";
-          if (oIdx === q.correct) {
-            optCls += " correct-answer";
+
+          if (optionIndex === question.correct) {
+            className += " correct-answer";
             icon = " ✔ [Correct Answer]";
           }
-          if (isEvaluated && userAns === oIdx && userAns !== q.correct) {
-            optCls += " user-wrong";
+
+          if (evaluated && userAnswer === optionIndex && userAnswer !== question.correct) {
+            className += " user-wrong";
             icon = " ✖ [Your Selection]";
-          } else if (isEvaluated && userAns === oIdx && userAns === q.correct) {
+          } else if (evaluated && userAnswer === optionIndex && userAnswer === question.correct) {
             icon += " (Your Selection)";
           }
-          return `<div class="${optCls}"><strong>(${optionLetters[oIdx]})</strong> ${opt}${icon}</div>`;
+
+          return `<div class="${className}"><strong>(${optionLetters[optionIndex]})</strong> ${optionText}${icon}</div>`;
         }).join("")}
       </div>
       <div class="explanation-box">
         <strong>💡 Rationale & Key SSC Facts:</strong><br>
-        ${q.explanation}
+        ${question.explanation}
       </div>
     `;
+
     container.appendChild(card);
   });
 }
@@ -653,22 +659,23 @@ function returnToDashboard() {
   const examView = document.getElementById("exam-active-view");
   examView.classList.remove("active");
   examView.style.display = "none";
+
   const resultView = document.getElementById("result-view");
   resultView.classList.remove("active");
   resultView.style.display = "none";
+
   document.getElementById("exam-header-timer").style.display = "none";
 
-  const dashView = document.getElementById("dashboard-view");
-  dashView.style.display = "block";
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  const dashboardView = document.getElementById("dashboard-view");
+  dashboardView.style.display = "block";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+
   document.getElementById("exam-header-title").textContent = "SSC CGL CBT Examination Simulator";
   document.getElementById("exam-header-subtitle").textContent = "General Awareness - Current Affairs Monthly Modules";
 
   renderDashboard();
 }
 
-
-// Ensure global accessibility across all mobile/tablet browsers
 window.startQuiz = startQuiz;
 window.selectCategory = selectCategory;
 window.handleSaveAndNext = handleSaveAndNext;
@@ -688,4 +695,5 @@ function reattemptQuiz() {
     returnToDashboard();
   }
 }
+
 window.reattemptQuiz = reattemptQuiz;
