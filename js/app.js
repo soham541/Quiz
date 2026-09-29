@@ -225,8 +225,14 @@ function startQuiz(quizId, isRetake = false) {
   // Always randomize options for variety, randomize questions only on retake
   const randomSession = buildRandomizedQuizSession(quiz, isRetake, true);
 
+  // Store only the randomized data; don't spread the original quiz
   state.activeQuiz = {
-    ...quiz,
+    id: quiz.id,
+    title: quiz.title,
+    category_id: quiz.category_id,
+    category_name: quiz.category_name,
+    month_name: quiz.month_name,
+    time_limit_minutes: quiz.time_limit_minutes,
     questions: randomSession.questions
   };
 
