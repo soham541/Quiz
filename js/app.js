@@ -222,7 +222,8 @@ function startQuiz(quizId, isRetake = false) {
   const quiz = state.data.quizzes[quizId];
   if (!quiz) return;
 
-  const randomSession = buildRandomizedQuizSession(quiz, isRetake, isRetake);
+  // Always randomize options for variety, randomize questions only on retake
+  const randomSession = buildRandomizedQuizSession(quiz, isRetake, true);
 
   state.activeQuiz = {
     ...quiz,
