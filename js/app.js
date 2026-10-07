@@ -32,18 +32,88 @@ document.addEventListener("DOMContentLoaded", () => {
   renderDashboard();
 });
 
-function loadData() {
-  if (window.QUIZ_DATA) {
-    state.data = window.QUIZ_DATA;
-    renderDashboard();
-    return;
+function normalizeQuizData(data) {
+  if (!data) {
+    return { categories: [], months: [], quizzes: {} };
   }
 
-  fetch("data/quizzes.json")
-    .then(res => res.json())
+  return {
+    ...data,
+    categories: Array.isArray(data.categories) ? [...data.categories] : [],
+    months: Array.isArray(data.months) ? [...data.months] : [],
+    quizzes: data.quizzes && typeof data.quizzes === "object" ? { ...data.quizzes } : {}
+  };
+}
+
+function mergeStaticQuestionPack(baseData, staticData) {
+  const merged = normalizeQuizData(baseData);
+  if (!staticData) return merged;
+
+  const staticCategories = Array.isArray(staticData.categories_to_append) ? staticData.categories_to_append : [];
+  const staticQuizzes = staticData.quizzes_to_append && typeof staticData.quizzes_to_append === "object"
+    ? staticData.quizzes_to_append
+    : {};
+
+  const existingCategoryIds = new Set(merged.categories.map(category => category.id));
+
+  staticCategories.forEach(category => {
+    if (!existingCategoryIds.has(category.id)) {
+      merged.categories.push({ ...category, type: "static" });
+    }
+  });
+
+  Object.entries(staticQuizzes).forEach(([quizId, quiz]) => {
+    merged.quizzes[quizId] = {
+      ...quiz,
+      id: quiz.id || quizId,
+      category_id: quiz.category_id || quiz.category || "unknown"
+    };
+  });
+
+  return merged;
+}
+
+function updateDashboardStats() {
+  const statBadges = document.querySelectorAll(".hero-stat-badge");
+  if (!state.data || !statBadges.length) return;
+
+  const totalCategories = (state.data.categories || []).length;
+  const totalQuestions = Object.values(state.data.quizzes || {}).reduce((sum, quiz) => {
+    const questionCount = Array.isArray(quiz.questions) ? quiz.questions.length : 0;
+    return sum + questionCount;
+  }, 0);
+
+  if (statBadges[0]) statBadges[0].textContent = `🏆 ${totalCategories} Categories`;
+  if (statBadges[1]) statBadges[1].textContent = `🧠 ${totalQuestions} Questions`;
+  if (statBadges[2]) statBadges[2].textContent = `⏱ 25 Minutes`;
+  if (statBadges[3]) statBadges[3].textContent = `📚 Practice Sets`;
+}
+
+function loadData() {
+  const baseDataPromise = window.QUIZ_DATA
+    ? Promise.resolve(window.QUIZ_DATA)
+    : fetch("data/quizzes.json").then(res => res.json());
+
+  baseDataPromise
     .then(data => {
-      state.data = data;
+      state.data = normalizeQuizData(data);
+      return fetch("new_static_questions.json")
+        .then(res => res.json())
+        .then(staticData => {
+          state.data = mergeStaticQuestionPack(state.data, staticData);
+        })
+        .catch(() => {
+          console.warn("Static question pack not found or could not be loaded.");
+        });
+    })
+    .then(() => {
+      if (!state.data || !state.data.categories.length) {
+        state.activeCategory = "sports";
+      } else if (!state.data.categories.some(category => category.id === state.activeCategory)) {
+        state.activeCategory = state.data.categories[0].id;
+      }
       renderDashboard();
+      updateDashboardStats();
     })
     .catch(err => {
       console.error("Failed to load quiz data:", err);
@@ -169,11 +239,9 @@ function renderDashboard() {
   categoryGrid.innerHTML = "";
 
   state.data.categories.forEach(category => {
-    const catQuizzes = state.data.months
-      .map(month => `${category.id}_${month.id}`)
-      .filter(quizId => state.data.quizzes[quizId]);
-
-    const attemptedCount = catQuizzes.filter(quizId => state.testHistory[quizId]).length;
+    const categoryQuizzes = Object.values(state.data.quizzes).filter(quiz => quiz.category_id === category.id);
+    const attemptedCount = categoryQuizzes.filter(quiz => state.testHistory[quiz.id]).length;
+    const totalQuestions = categoryQuizzes.reduce((sum, quiz) => sum + (Array.isArray(quiz.questions) ? quiz.questions.length : 0), 0);
 
     const card = document.createElement("div");
     card.className = `category-card ${category.id === state.activeCategory ? "active" : ""}`;
@@ -189,14 +257,15 @@ function renderDashboard() {
         </div>
       </div>
       <div class="category-quiz-counter">
-        <span>7 Monthly Quizzes (175 Qs)</span>
-        <span>${attemptedCount > 0 ? `Completed: ${attemptedCount}/7` : "Ready to Start"}</span>
+        <span>${categoryQuizzes.length} ${categoryQuizzes.length === 1 ? "Quiz" : "Quizzes"} (${totalQuestions} Qs)</span>
+        <span>${attemptedCount > 0 ? `Completed: ${attemptedCount}/${categoryQuizzes.length}` : "Ready to Start"}</span>
       </div>
     `;
     categoryGrid.appendChild(card);
   });
 
   renderCategoryQuizzes();
+  updateDashboardStats();
 }
 
 function selectCategory(categoryId) {
@@ -211,14 +280,25 @@ function renderCategoryQuizzes() {
   container.innerHTML = "";
 
   const currentCategory = state.data.categories.find(category => category.id === state.activeCategory);
-  heading.innerHTML = `${currentCategory.icon} ${currentCategory.name} - Monthly SSC CGL Quizzes`;
+  if (!currentCategory) return;
 
-  state.data.months.forEach(month => {
-    const quizId = `${state.activeCategory}_${month.id}`;
-    const quiz = state.data.quizzes[quizId];
-    if (!quiz) return;
+  const categoryQuizzes = Object.values(state.data.quizzes)
+    .filter(quiz => quiz.category_id === currentCategory.id)
+    .sort((a, b) => String(a.title).localeCompare(String(b.title)));
 
-    const history = state.testHistory[quizId];
+  const headingLabel = currentCategory.type === "static"
+    ? `${currentCategory.icon} ${currentCategory.name} - Static SSC CGL Practice Sets`
+    : `${currentCategory.icon} ${currentCategory.name} - Monthly SSC CGL Quizzes`;
+  heading.innerHTML = headingLabel;
+
+  if (!categoryQuizzes.length) {
+    container.innerHTML = '<div class="quiz-item-card"><div class="quiz-item-meta"><span>No quizzes available in this category yet.</span></div></div>';
+    return;
+  }
+
+  categoryQuizzes.forEach(quiz => {
+    const history = state.testHistory[quiz.id];
+    const focusLabel = quiz.month_name || quiz.month_id || "Practice Set";
 
     const card = document.createElement("div");
     card.className = "quiz-item-card";
@@ -229,13 +309,13 @@ function renderCategoryQuizzes() {
           ${history ? `<span class="score-badge">Score: ${history.score.toFixed(1)} / 50</span>` : ""}
         </div>
         <div class="quiz-item-meta">
-          <span>📝 <strong>25 Questions</strong> (Multiple Choice)</span>
-          <span>⏱️ <strong>25 Minutes</strong> Time Limit</span>
+          <span>📝 <strong>${quiz.questions.length} Questions</strong> (Multiple Choice)</span>
+          <span>⏱️ <strong>${quiz.time_limit_minutes || 25} Minutes</strong> Time Limit</span>
           <span>🎯 <strong>50 Marks</strong> (+2.00 / -0.50 Marking)</span>
-          <span>📅 Focus: <strong>${month.name}</strong></span>
+          <span>📅 Focus: <strong>${focusLabel}</strong></span>
         </div>
       </div>
-      <button type="button" class="btn-start-test" onclick="window.startQuiz('${quizId}')">
+      <button type="button" class="btn-start-test" onclick="window.startQuiz('${quiz.id}')">
         ${history ? "Re-take Quiz" : "Start Test"} ➔
       </button>
     `;
@@ -264,7 +344,7 @@ function startQuiz(quizId, isRetake = false) {
 
   document.getElementById("exam-header-title").textContent = quiz.title;
   document.getElementById("exam-header-subtitle").textContent = "SSC CGL (Tier-1) - General Awareness CBT Mock";
-  document.getElementById("section-display-tag").textContent = `${state.data.categories.find(c => c.id === quiz.category_id)?.name} (${quiz.month_name})`;
+  document.getElementById("section-display-tag").textContent = `${state.data.categories.find(c => c.id === quiz.category_id)?.name} (${quiz.month_name || quiz.month_id || "Practice Set"})`;
 
   renderQuestion();
   renderPalette();
@@ -578,7 +658,6 @@ function renderSolutions() {
 
   quiz.questions.forEach((question, index) => {
     const userAnswer = state.userResponses[index];
-    const status = state.questionStatuses[index];
     const evaluated = isQuestionEvaluated(index);
 
     if (evaluated) {
