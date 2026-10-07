@@ -45,6 +45,60 @@ function normalizeQuizData(data) {
   };
 }
 
+function stripParentheticalClues(value) {
+  if (typeof value !== "string") return value;
+
+  return value
+    .replace(/\s*\([^)]*\)/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function shortenExplanation(value) {
+  if (typeof value !== "string") return value;
+
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  const sentences = cleaned.split(/(?<=[.!?])\s+/).filter(Boolean);
+
+  if (sentences.length > 1) {
+    const condensed = sentences.slice(1).join(" ").trim();
+    if (condensed.length > 0) {
+      return condensed.length > 180 ? `${condensed.slice(0, 180).trim()}…` : condensed;
+    }
+  }
+
+  return cleaned.length > 180 ? `${cleaned.slice(0, 180).trim()}…` : cleaned;
+}
+
+function sanitizeQuestion(question) {
+  if (!question || !Array.isArray(question.options)) return question;
+
+  return {
+    ...question,
+    options: question.options.map(stripParentheticalClues),
+    explanation: shortenExplanation(question.explanation)
+  };
+}
+
+function sanitizeQuizPack(data) {
+  if (!data) return data;
+
+  const sanitized = { ...data };
+  const quizzes = sanitized.quizzes && typeof sanitized.quizzes === "object" ? sanitized.quizzes : {};
+
+  sanitized.quizzes = Object.fromEntries(
+    Object.entries(quizzes).map(([quizId, quiz]) => {
+      if (!quiz || !Array.isArray(quiz.questions)) {
+        return [quizId, quiz];
+      }
+
+      return [quizId, { ...quiz, questions: quiz.questions.map(sanitizeQuestion) }];
+    })
+  );
+
+  return sanitized;
+}
+
 function mergeStaticQuestionPack(baseData, staticData) {
   const merged = normalizeQuizData(baseData);
   if (!staticData) return merged;
@@ -70,7 +124,7 @@ function mergeStaticQuestionPack(baseData, staticData) {
     };
   });
 
-  return merged;
+  return sanitizeQuizPack(merged);
 }
 
 function updateDashboardStats() {
@@ -107,6 +161,7 @@ function loadData() {
         });
     })
     .then(() => {
+      state.data = sanitizeQuizPack(state.data);
       if (!state.data || !state.data.categories.length) {
         state.activeCategory = "sports";
       } else if (!state.data.categories.some(category => category.id === state.activeCategory)) {
@@ -711,21 +766,21 @@ function renderSolutions() {
 
           if (optionIndex === question.correct) {
             className += " correct-answer";
-            icon = " ✔ [Correct Answer]";
+            icon = " ✓";
           }
 
           if (evaluated && userAnswer === optionIndex && userAnswer !== question.correct) {
             className += " user-wrong";
-            icon = " ✖ [Your Selection]";
+            icon = " ✗";
           } else if (evaluated && userAnswer === optionIndex && userAnswer === question.correct) {
-            icon += " (Your Selection)";
+            icon = " ✓";
           }
 
           return `<div class="${className}"><strong>(${optionLetters[optionIndex]})</strong> ${optionText}${icon}</div>`;
         }).join("")}
       </div>
       <div class="explanation-box">
-        <strong>💡 Rationale & Key SSC Facts:</strong><br>
+        <strong>💡 Hint:</strong><br>
         ${question.explanation}
       </div>
     `;
